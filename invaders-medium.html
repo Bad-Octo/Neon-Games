@@ -1,0 +1,87 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NEON INVADERS — MEDIUM</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% 0,#19234e,#070a1a 70%);color:#e6faff;font-family:system-ui,Segoe UI,Arial,sans-serif;text-align:center;min-height:100vh}h1{margin:14px 0 4px;color:#71f5ff;letter-spacing:4px;text-shadow:0 0 18px #00dafa}header p{margin:0 0 12px;color:#b3b9e4}.wrap{max-width:530px;margin:auto;padding:6px 12px 28px}.hud{display:flex;justify-content:space-between;gap:10px;font-size:12px;font-weight:800;letter-spacing:1px;padding:8px;color:#ffe599}#shield{color:#9aeeff}main{position:relative}canvas{display:block;width:100%;aspect-ratio:480/650;border:2px solid #4ad9f5;border-radius:10px;box-shadow:0 0 27px #0aeaff33;touch-action:none}#overlay{position:absolute;inset:2px;display:flex;align-items:center;justify-content:center;background:#030818d9;border-radius:10px}#overlay[hidden]{display:none}.panel{padding:26px;border:1px solid #a55fff;border-radius:15px;background:#121b3b;box-shadow:0 0 32px #945aff55;max-width:85%}.panel h2{font-size:28px;color:#82efff;text-shadow:0 0 15px #00eeff}.panel p{line-height:1.5}button{cursor:pointer;background:#19264e;color:#dcfaff;border:1px solid #4ad4ff;border-radius:8px;font-weight:900;letter-spacing:1px;padding:12px 16px;box-shadow:0 0 13px #27deff44}button:hover{background:#284277}#go{background:#37ccf2;color:#071224;padding:14px 24px}.controls{display:flex;justify-content:center;gap:12px;margin-top:13px}.controls button{touch-action:none;min-width:70px;font-size:19px}.controls button:nth-child(2){flex:1;background:#722b76;border-color:#ff64de}footer{margin:12px auto;color:#96abc5;font-size:12px}a{color:#7efbff}
+</style><script>function reportArcade(value){const n=Number(value);if(Number.isFinite(n)&&n>=0){try{parent.postMessage({neonArcadeScore:true,score:Math.round(n)},'*')}catch(e){}}}</script></head><body data-mode="medium"><div class="wrap"><header><h1>NEON INVADERS</h1><p>Mode MEDIUM · Arrivées aléatoires</p></header><div class="hud"><span id="stats"></span><span id="shield"></span></div><main><canvas aria-label="Jeu Neon Invaders"></canvas><div id="overlay"><div class="panel"><h2 id="heading">NEON INVADERS</h2><p id="description">Élimine chaque alien avant qu’il atteigne le bas !</p><button id="go">▶ JOUER</button></div></div></main><div class="controls"><button data-key="ArrowLeft">◀</button><button data-key=" ">⚡ TIR</button><button data-key="ArrowRight">▶</button></div><div class="controls"><button id="pause">⏸ PAUSE</button><button id="sound">🎵 MUSIQUE ON</button></div><footer>Clavier : ← → pour bouger · Espace pour tirer · P pour la pause<br>Sur téléphone : utilise les boutons tactiles.</footer></div><script>const MODE=document.body.dataset.mode||'normal';
+const cfg={normal:{speed:42,descent:14,drop:16,lives:3,label:'NORMAL'},medium:{speed:64,descent:24,drop:22,lives:2,label:'MEDIUM'},hardcore:{speed:94,descent:38,drop:29,lives:1,label:'HARDCORE'}}[MODE];
+const canvas=document.querySelector('canvas'),ctx=canvas.getContext('2d');let W=480,H=650;canvas.width=W;canvas.height=H;
+let state='menu',player=null,aliens=[],bullets=[],particles=[],stars=[],wave=0,score=0,best=0,keys={},last=0,formationDir=1,shootTimer=0,shake=0,boss=null,audio=null,muted=false,spawnRemaining=0,spawnClock=0,spawnInterval=1;
+try{best=Number(localStorage.getItem('neon_invaders_descente_'+MODE)||0)}catch(e){}
+const $=s=>document.querySelector(s);const rand=(a,b)=>a+Math.random()*(b-a);
+for(let i=0;i<95;i++)stars.push({x:rand(0,W),y:rand(0,H),z:rand(.2,1.2)});
+function sound(freq=400,dur=.07,type='sine',vol=.045){if(muted)return;try{audio=audio||new (window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume();let o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.setValueAtTime(freq,audio.currentTime);o.frequency.exponentialRampToValueAtTime(Math.max(60,freq*.65),audio.currentTime+dur);g.gain.setValueAtTime(vol,audio.currentTime);g.gain.exponentialRampToValueAtTime(.0001,audio.currentTime+dur);o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+dur)}catch(e){}}
+
+// Bande-son synthétique originale : aucun fichier externe requis.
+let musicNext=0,musicStep=0;
+const melody=[0,7,12,7,3,10,7,5,0,7,14,10,3,7,5,2];
+const roots=[110,98,130.81,116.54];
+function musicalTone(freq,at,duration,kind='triangle',volume=.018){
+ if(!audio||muted)return;
+ const osc=audio.createOscillator(),gain=audio.createGain();
+ osc.type=kind;osc.frequency.setValueAtTime(freq,at);
+ gain.gain.setValueAtTime(.0001,at);
+ gain.gain.exponentialRampToValueAtTime(volume,at+.012);
+ gain.gain.exponentialRampToValueAtTime(.0001,at+duration);
+ osc.connect(gain);gain.connect(audio.destination);
+ osc.start(at);osc.stop(at+duration+.02);
+}
+function musicTick(){
+ if(state!=='play'||muted)return;
+ try{
+  audio=audio||new (window.AudioContext||window.webkitAudioContext)();
+  if(audio.state==='suspended')return;
+  const bpm=Math.min(174,MODE==='hardcore'?148+wave*1.5:MODE==='medium'?130+wave*1.3:112+wave*1.2);
+  const interval=60/bpm/2;
+  if(musicNext<audio.currentTime-.2)musicNext=audio.currentTime+.04;
+  while(musicNext<audio.currentTime+.2){
+   const step=musicStep++,at=musicNext;
+   const root=roots[Math.floor(step/16)%roots.length];
+   musicalTone(root*(step%8===0?1:step%8===4?1.5:1),at,.16,'sine',.035);
+   if(step%2===0)musicalTone(root*2*Math.pow(2,melody[step%16]/12),at,.13,'triangle',.016);
+   if(step%4===2)musicalTone(65,at,.06,'square',.008);
+   musicNext+=interval;
+  }
+ }catch(e){}
+}
+setInterval(musicTick,90);
+
+function burst(x,y,c,n=12){for(let i=0;i<n;i++)particles.push({x,y,vx:rand(-170,170),vy:rand(-170,170),life:rand(.25,.7),c})}
+function start(){score=0;wave=0;player={x:W/2,y:H-65,w:34,h:20,lives:cfg.lives,inv:0};bullets=[];particles=[];nextWave();state='play';$('#overlay').hidden=true;sync();musicNext=0;musicStep=0;sound(650,.14)}
+function nextWave(){
+ wave++;boss=null;aliens=[];bullets=[];
+ // Chaque vague fait apparaître les aliens un par un, en positions aléatoires.
+ spawnRemaining=wave%4===0?0:Math.min(9+wave*3,MODE==='hardcore'?31:25);
+ spawnInterval=Math.max(MODE==='normal'?.44:MODE==='medium'?.31:.22,
+   (MODE==='normal'?1.12:MODE==='medium'?.82:.64)-wave*.035);
+ spawnClock=.65;
+ if(wave%4===0){boss={x:rand(75,W-75),y:60,hp:14+wave*4,max:14+wave*4,dir:Math.random()<.5?-1:1}}
+ sync();
+}
+function spawnAlien(){
+ const x=rand(24,W-24),type=Math.floor(rand(0,5));
+ const speed=(MODE==='normal'?47:MODE==='medium'?73:103)+wave*5+rand(-9,19);
+ aliens.push({x,y:-22,w:26,h:21,hp:1+(wave>=5&&Math.random()<.18?1:0),type,
+   speed,drift:rand(-46,46),phase:rand(0,6.28),age:0});
+}
+function sync(){$('#stats').textContent=`SCORE ${score}  ·  VAGUE ${wave}  ·  VIES ${player?.lives||0}  ·  RECORD ${best}`;$('#shield').textContent='⚠ STOPPE L’INVASION'}
+function shoot(){if(state!=='play'||shootTimer>0)return;bullets.push({x:player.x,y:player.y-20,vy:-550});shootTimer=MODE==='hardcore'?.15:.21;sound(620,.06,'square',.025)}
+function lose(){if(state!=='play')return;state='end';player.lives=0;if(score>0)reportArcade(score);shake=13;burst(player.x,player.y,'#ff63c9',28);sound(110,.4,'sawtooth');if(score>best){best=score;try{localStorage.setItem('neon_invaders_descente_'+MODE,best)}catch(e){}}$('#overlay').hidden=false;$('#heading').textContent='INVASION !';$('#description').textContent=`Un alien a atteint le bas ! Score : ${score} · Vague : ${wave}`;$('#go').textContent='REJOUER';$('#go').onclick=start;sync()}
+function update(dt){stars.forEach(s=>{s.y+=s.z*27*dt;if(s.y>H)s.y=0});particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt});particles=particles.filter(p=>p.life>0);if(state!=='play')return;player.inv=Math.max(0,player.inv-dt);shootTimer=Math.max(0,shootTimer-dt);shake=Math.max(0,shake-40*dt);let move=(keys.ArrowRight||keys.d||keys.D?1:0)-(keys.ArrowLeft||keys.a||keys.A||keys.q||keys.Q?1:0);player.x=Math.max(20,Math.min(W-20,player.x+move*350*dt));if(keys[' ']||keys.ArrowUp||keys.w)shoot();bullets.forEach(b=>b.y+=b.vy*dt);
+ if(boss){boss.x+=boss.dir*(75+wave*7)*(cfg.speed/50)*dt;if(boss.x>W-68||boss.x<68)boss.dir*=-1;boss.y+=(cfg.descent*.8+wave*1.7)*dt;if(boss.y+25>=player.y-22){lose();return} }else{
+  spawnClock-=dt;
+  if(spawnRemaining>0&&spawnClock<=0){spawnAlien();spawnRemaining--;spawnClock+=spawnInterval*rand(.72,1.28)}
+  for(const a of aliens){
+   a.age+=dt;
+   a.y+=a.speed*dt;
+   a.x+= (a.drift+Math.sin(a.age*2.7+a.phase)*19)*dt;
+   if(a.x<18){a.x=18;a.drift=Math.abs(a.drift)}
+   if(a.x>W-18){a.x=W-18;a.drift=-Math.abs(a.drift)}
+  }
+  if(aliens.some(a=>a.y+a.h/2>=player.y-20)){lose();return}
+ }
+ bullets.forEach(b=>{if(b.dead)return;if(boss&&Math.abs(b.x-boss.x)<55&&Math.abs(b.y-boss.y)<30){b.dead=true;boss.hp--;burst(b.x,b.y,'#ff63cc',3);if(boss.hp<=0){score+=1000+wave*100;burst(boss.x,boss.y,'#ffda56',70);boss=null;nextWave();sound(950,.3)}}else{for(const a of aliens){if(Math.abs(b.x-a.x)<a.w/2+2&&Math.abs(b.y-a.y)<a.h/2+4){b.dead=true;a.hp--;burst(a.x,a.y,'#6cfaff',6);if(a.hp<=0){a.dead=true;score+=30+(4-a.type)*10;sound(360,.07,'triangle')}break}}}});
+ aliens=aliens.filter(a=>!a.dead);bullets=bullets.filter(b=>!b.dead&&b.y>-20);if(aliens.length===0&&!boss&&spawnRemaining===0)nextWave();if(score>best)best=score;sync()}
+function draw(){ctx.fillStyle='#070d21';ctx.fillRect(0,0,W,H);ctx.save();if(shake)ctx.translate(rand(-shake,shake),rand(-shake,shake));for(const s of stars){ctx.fillStyle=`rgba(106,215,255,${s.z*.55})`;ctx.fillRect(s.x,s.y,1.5*s.z,1.5*s.z)}ctx.strokeStyle='rgba(28,69,114,.32)';for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
+ if(player){ctx.fillStyle='#ff397344';ctx.fillRect(0,player.y-27,W,2);}ctx.shadowBlur=0;for(const a of aliens){let c=['#ff5ca9','#ed70ff','#70a7ff','#52fbdf','#ffe56b'][a.type%5];ctx.shadowBlur=16;ctx.shadowColor=c;ctx.fillStyle=c;ctx.fillRect(a.x-12,a.y-8,24,15);ctx.fillRect(a.x-16,a.y-2,32,7);ctx.fillStyle='#07132d';ctx.fillRect(a.x-7,a.y-3,4,4);ctx.fillRect(a.x+4,a.y-3,4,4)}if(boss){ctx.shadowBlur=23;ctx.shadowColor='#ff408e';ctx.fillStyle='#f84d9f';ctx.fillRect(boss.x-54,boss.y-23,108,44);ctx.fillStyle='#250827';ctx.fillRect(boss.x-33,boss.y-10,66,15);ctx.fillStyle='#ffda69';ctx.fillRect(W*.2,20,W*.6*boss.hp/boss.max,7);ctx.strokeStyle='#ff93c7';ctx.strokeRect(W*.2,20,W*.6,7)}
+ if(player&&(player.inv===0||Math.floor(player.inv*9)%2===0)){ctx.shadowBlur=22;ctx.shadowColor='#39efff';ctx.fillStyle='#5df6ff';ctx.beginPath();ctx.moveTo(player.x,player.y-22);ctx.lineTo(player.x-20,player.y+15);ctx.lineTo(player.x,player.y+6);ctx.lineTo(player.x+20,player.y+15);ctx.closePath();ctx.fill();ctx.fillStyle='#0e2b4c';ctx.fillRect(player.x-5,player.y-3,10,12)}ctx.shadowBlur=12;bullets.forEach(b=>{ctx.fillStyle='#fff29b';ctx.shadowColor='#ffe761';ctx.fillRect(b.x-2,b.y-9,4,17)});particles.forEach(p=>{ctx.globalAlpha=Math.min(1,p.life*2);ctx.fillStyle=p.c;ctx.fillRect(p.x,p.y,3,3)});ctx.globalAlpha=1;ctx.restore()}
+function frame(t){let dt=Math.min(.035,(t-last)/1000||0);last=t;update(dt);draw();requestAnimationFrame(frame)}requestAnimationFrame(frame);
+$('#go').onclick=start;$('#sound').onclick=()=>{muted=!muted;$('#sound').textContent=muted?'🔇 MUSIQUE OFF':'🎵 MUSIQUE ON';if(!muted){musicNext=0;try{audio=audio||new (window.AudioContext||window.webkitAudioContext)();audio.resume()}catch(e){}}};$('#pause').onclick=()=>{if(state==='play'){state='pause';$('#overlay').hidden=false;$('#heading').textContent='PAUSE';$('#description').textContent='Reprends quand tu veux';$('#go').textContent='REPRENDRE';$('#go').onclick=()=>{state='play';$('#overlay').hidden=true;$('#go').onclick=start}}else if(state==='pause'){state='play';$('#overlay').hidden=true;$('#go').onclick=start}};
+window.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp',' '].includes(e.key))e.preventDefault();keys[e.key]=true;if(e.key==='p'||e.key==='P')$('#pause').click();if(e.key==='Enter'&&state==='menu')start()});window.addEventListener('keyup',e=>keys[e.key]=false);document.querySelectorAll('[data-key]').forEach(el=>{const key=el.dataset.key;el.addEventListener('pointerdown',e=>{e.preventDefault();keys[key]=true;if(key===' ')shoot();el.setPointerCapture(e.pointerId)});for(const ev of ['pointerup','pointercancel','lostpointercapture'])el.addEventListener(ev,()=>keys[key]=false)});$('#heading').textContent='NEON INVADERS';$('#description').textContent=`${cfg.label} · Les aliens arrivent seuls, au hasard : ne les laisse pas passer !`;sync();
+</script></body></html>

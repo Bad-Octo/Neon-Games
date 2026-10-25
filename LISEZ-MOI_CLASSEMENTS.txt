@@ -1,0 +1,20 @@
+NEON GAMES - CLASSEMENTS MONDIAUX (30 jeux)
+
+1. Créer un projet Supabase sur https://supabase.com (si les conditions d'âge du service le permettent).
+2. Dans Supabase > SQL Editor, exécuter INSTALLATION_CLASSEMENTS.sql.
+3. Dans Project Settings > API Keys, récupérer l'URL du projet et la clé « publishable ».
+4. Éditer index.html (ou Neon_Games_30_jeux_classements.html) et renseigner :
+      const NEON_DB_URL='https://...supabase.co';
+      const NEON_DB_PUBLISHABLE_KEY='sb_publishable_...';
+   Ne JAMAIS utiliser une clé secret/service_role dans une page HTML.
+5. Remplacer index.html dans GitHub Pages. L'adresse du site ne change pas.
+
+La version fournie est une interface prête à brancher, mais PAS un classement mondial
+opérationnel tant que Supabase n'est pas configuré.
+Chaque jeu/difficulté possède sa table de Top 10 filtrée par game_id.
+Les scores sont collectés par le navigateur à la fin des parties : ils peuvent
+être falsifiés. Pour un concours sérieux, une validation sur serveur est requise.
+Note : pour certains jeux, les records représentent un score cumulé, et pour
+les puzzles terminés, le temps ou le nombre de coups. Pour Neon Circuit, les
+points sont relevés à la fin d'un niveau. Pour Neon Army, le score dépend de
+la vague atteinte et de la santé restante de la base.
